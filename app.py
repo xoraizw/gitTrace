@@ -103,38 +103,50 @@ def analyze_repo():
         # Get URL from POST request
         data = request.get_json()
         if not data or 'repo_url' not in data:
-            return jsonify({'error': 'Missing repo_url parameter'}), 400
+            response = jsonify({'error': 'Missing repo_url parameter'})
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            return response, 400
         repo_url = data['repo_url']
     else:
         # Get URL from query parameter
         repo_url = request.args.get('repo_url')
         if not repo_url:
-            return jsonify({'error': 'Missing repo_url parameter'}), 400
-    
+            response = jsonify({'error': 'Missing repo_url parameter'})
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            return response, 400
+
     # Validate the URL (basic check)
     if not repo_url.startswith('https://github.com/'):
-        return jsonify({'error': 'Invalid GitHub URL'}), 400
-    
+        response = jsonify({'error': 'Invalid GitHub URL'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response, 400
+
     # Generate the repository analysis
     output_text, error = generate_repo_analysis(repo_url)
-    
+
     if error:
-        return jsonify({'error': f'Error analyzing repository: {error}'}), 500
-    
+        response = jsonify({'error': f'Error analyzing repository: {error}'})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response, 500
+
     # Determine if the client wants a download or JSON response
     download = request.args.get('download', 'false').lower() == 'true'
-    
+
     if download:
         # Return as a downloadable file
         repo_name = extract_repo_name_from_url(repo_url)
-        return Response(
+        response = Response(
             output_text,
             mimetype='text/plain',
             headers={'Content-Disposition': f'attachment; filename={repo_name}_analysis.txt'}
         )
     else:
         # Return JSON response with the text content
-        return jsonify({'content': output_text})
+        response = jsonify({'content': output_text})
+
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
