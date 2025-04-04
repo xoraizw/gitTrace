@@ -3,10 +3,8 @@ import shutil
 import subprocess
 import tempfile
 from flask import Flask, request, Response, jsonify
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
 
 def clone_repo(repo_url, clone_dir):
     """Clone the GitHub repository into the specified directory."""
