@@ -2,8 +2,9 @@ import os
 import shutil
 import subprocess
 import tempfile
-import requests
 import json
+import urllib.request
+import urllib.error
 from flask import Flask, request, Response, jsonify
 
 app = Flask(__name__)
@@ -25,12 +26,18 @@ def get_repo_size(repo_url):
     # Use GitHub API to get repo information
     api_url = f"https://api.github.com/repos/{owner}/{repo}"
     try:
-        response = requests.get(api_url)
-        response.raise_for_status()
-        data = response.json()
-        # Size is returned in KB, convert to MB
-        size_mb = data.get('size', 0) / 1024
-        return size_mb, None
+        # Using urllib from standard library instead of requests
+        headers = {'User-Agent': 'Repository-Size-Checker/1.0'}
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            # Size is returned in KB, convert to MB
+            size_mb = data.get('size', 0) / 1024
+            return size_mb, None
+    except urllib.error.HTTPError as e:
+        return None, f"GitHub API error: {e.code} {e.reason}"
+    except urllib.error.URLError as e:
+        return None, f"Connection error: {e.reason}"
     except Exception as e:
         return None, f"Error fetching repository size: {str(e)}"
 
