@@ -2,9 +2,37 @@ import os
 import shutil
 import subprocess
 import tempfile
+import requests
+import json
 from flask import Flask, request, Response, jsonify
 
 app = Flask(__name__)
+
+def get_repo_size(repo_url):
+    """Get the size of a GitHub repository in MB using GitHub API."""
+    # Extract owner and repo name from URL
+    parts = repo_url.rstrip('/').split('/')
+    if len(parts) < 5 or parts[2] != 'github.com':
+        return None, "Invalid GitHub URL format"
+    
+    owner = parts[3]
+    repo = parts[4].split('.')[0]  # Remove .git extension if present
+    
+    # Handle tree or blob paths
+    if '/tree/' in repo or '/blob/' in repo:
+        repo = repo.split('/')[0]
+    
+    # Use GitHub API to get repo information
+    api_url = f"https://api.github.com/repos/{owner}/{repo}"
+    try:
+        response = requests.get(api_url)
+        response.raise_for_status()
+        data = response.json()
+        # Size is returned in KB, convert to MB
+        size_mb = data.get('size', 0) / 1024
+        return size_mb, None
+    except Exception as e:
+        return None, f"Error fetching repository size: {str(e)}"
 
 def clone_repo(repo_url, clone_dir):
     """Clone the GitHub repository into the specified directory."""
@@ -59,6 +87,16 @@ def extract_all_files_contents(root_dir):
 
 def generate_repo_analysis(repo_url):
     """Generate repository analysis and return as a string."""
+    # Check repository size before cloning
+    repo_size, size_error = get_repo_size(repo_url)
+    
+    if size_error:
+        return None, size_error
+    
+    # Check if repository is too large (over 100MB)
+    if repo_size > 100:
+        return None, f"Repository size ({repo_size:.2f} MB) exceeds the 100 MB limit"
+    
     # Create a temporary directory for cloning
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
@@ -80,8 +118,9 @@ def generate_repo_analysis(repo_url):
                 len(content) for content in file_contents.values()
             )
             
-            # Generate the output text
-            output_text = f"Lines: {total_lines}\nCharacters: {total_chars}\n\n"
+            # Generate the output text with the repository size
+            output_text = f"Repository Size: {repo_size:.2f} MB\n"
+            output_text += f"Lines: {total_lines}\nCharacters: {total_chars}\n\n"
             output_text += "Directory Structure:\n```\n"
             output_text += directory_structure
             output_text += "\n```\n"
@@ -121,6 +160,23 @@ def analyze_repo():
         response.headers.add("Access-Control-Allow-Origin", "*")
         return response, 400
 
+    # First check the repository size
+    repo_size, size_error = get_repo_size(repo_url)
+    
+    if size_error:
+        response = jsonify({'error': size_error})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response, 400
+    
+    # Check if repository is too large
+    if repo_size > 100:
+        response = jsonify({
+            'error': f"Repository size ({repo_size:.2f} MB) exceeds the 100 MB limit",
+            'repo_size': repo_size
+        })
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response, 413  # 413 Payload Too Large
+
     # Generate the repository analysis
     output_text, error = generate_repo_analysis(repo_url)
 
@@ -141,8 +197,11 @@ def analyze_repo():
             headers={'Content-Disposition': f'attachment; filename={repo_name}_analysis.txt'}
         )
     else:
-        # Return JSON response with the text content
-        response = jsonify({'content': output_text})
+        # Return JSON response with the text content and repo size
+        response = jsonify({
+            'content': output_text,
+            'repo_size': repo_size
+        })
 
     response.headers.add("Access-Control-Allow-Origin", "*")
     return response
